@@ -2057,32 +2057,50 @@ function closeOrdersSummary() {
     };
  
         // Sendet Daten an Google Sheets
-        // Wichtig: mode:'no-cors' umgeht alle CORS-Prüfungen vollständig.
-        // Das ist notwendig, weil die HTML-Datei als eigenständige Seite
-        // (z.B. GitHub Pages) läuft und NICHT innerhalb von Google Apps
-        // Script eingebettet ist – "google.script.run" steht dort also
-        // nicht zur Verfügung.
-        // Nachteil von no-cors: Der Browser blockiert das Lesen der
-        // Server-Antwort (Statuscode/Inhalt), daher kann hier nur erkannt
-        // werden, ob die Anfrage überhaupt abgeschickt werden konnte
-        // (z.B. Internetverbindung vorhanden) – nicht, ob Google Apps
-        // Script sie serverseitig erfolgreich verarbeitet hat.
-        // Content-Type 'text/plain' vermeidet einen CORS-Preflight-Request,
-        // den Apps Script nicht sauber beantwortet.
-        // Google Apps Script liest den Body über: e.postData.contents
+        // WICHTIG: Wir nutzen absichtlich KEIN fetch()/XHR mehr, sondern
+        // ein verstecktes <form>, das in ein unsichtbares iFrame gesendet
+        // wird. Grund: fetch() mit mode:'no-cors' hängt sich auf manchen
+        // iOS-Safari-Versionen bei der internen Weiterleitung, die Google
+        // Apps Script bei jedem /exec-Aufruf macht, lautlos auf – weder
+        // .then() noch .catch() feuert dann. Eine normale Formular-
+        // Übertragung ist davon nicht betroffen und funktioniert auf
+        // Android und iOS gleichermaßen zuverlässig.
+        // Google Apps Script liest den Wert dann über: e.parameter.payload
         function syncToSheets(payload) {
-            fetch(GOOGLE_SCRIPT_URL, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify(payload)
-            })
-            .then(function() {
+            try {
+                let iframe = document.getElementById('syncIframe');
+                if (!iframe) {
+                    iframe = document.createElement('iframe');
+                    iframe.id = 'syncIframe';
+                    iframe.name = 'syncIframe';
+                    iframe.style.display = 'none';
+                    document.body.appendChild(iframe);
+                }
+
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = GOOGLE_SCRIPT_URL;
+                form.target = 'syncIframe';
+                form.style.display = 'none';
+
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'payload';
+                input.value = JSON.stringify(payload);
+                form.appendChild(input);
+
+                document.body.appendChild(form);
+                form.submit();
+                form.remove();
+
+                // Da das Formular in ein unsichtbares iFrame lädt, kann der
+                // eigentliche Server-Erfolg nicht ausgelesen werden (genau
+                // wie zuvor bei no-cors). Wir zeigen daher an, dass die
+                // Anfrage abgeschickt wurde.
                 showSyncIndicator('✅ An Google Sheets gesendet');
-            })
-            .catch(function(err) {
+            } catch (err) {
                 showSyncIndicator('⚠️ Fehler: ' + (err ? err.message : '?'), true);
-            });
+            }
         }
  
         function showSyncIndicator(msg, isError = false) {
